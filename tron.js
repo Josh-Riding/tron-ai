@@ -45,31 +45,37 @@ class TronCLI {
 
   async chatWithTron(message) {
     return new Promise((resolve, reject) => {
-      const ollamaRun = spawn("ollama", ["run", "tron"], {
-        stdio: "pipe",
+      const requestData = JSON.stringify({
+        model: "tron",
+        prompt: message,
+        stream: false,
       });
 
-      let response = "";
+      const curlCommand = `curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d '${requestData}'`;
 
-      ollamaRun.stdout.on("data", (data) => {
-        response += data.toString();
-      });
+      exec(curlCommand, (error, stdout, stderr) => {
+        if (error) {
+          reject(
+            new Error(`Failed to communicate with Ollama: ${error.message}`)
+          );
+          return;
+        }
 
-      ollamaRun.stderr.on("data", (data) => {
-        console.error("Error:", data.toString());
-      });
-
-      ollamaRun.on("close", (code) => {
-        if (code === 0) {
-          resolve(response.trim());
-        } else {
-          reject(new Error(`Ollama process exited with code ${code}`));
+        try {
+          const result = JSON.parse(stdout);
+          if (result.response) {
+            resolve(result.response);
+          } else if (result.error) {
+            reject(new Error(result.error));
+          } else {
+            reject(new Error("No response from Ollama"));
+          }
+        } catch (parseError) {
+          reject(
+            new Error(`Failed to parse Ollama response: ${parseError.message}`)
+          );
         }
       });
-
-      // Send the message to Tron
-      ollamaRun.stdin.write(message + "\n");
-      ollamaRun.stdin.end();
     });
   }
 
@@ -77,18 +83,14 @@ class TronCLI {
     console.log("🤖 TRON SYSTEM INITIALIZED");
     console.log("═══════════════════════════");
     console.log("Greetings, User. I am TRON, your digital assistant.");
-    console.log('Type "exit", "quit", or "derez" to terminate the session.\n');
+    console.log('Type "exit", or "quit" to terminate the session.\n\x1b[0m');
 
     const chat = async () => {
       this.rl.question("USER: ", async (input) => {
         const trimmedInput = input.trim().toLowerCase();
 
-        if (
-          trimmedInput === "exit" ||
-          trimmedInput === "quit" ||
-          trimmedInput === "derez"
-        ) {
-          console.log("\n🔴 TRON: Derezzling... End of line.");
+        if (trimmedInput === "exit" || trimmedInput === "quit") {
+          console.log("\n🔴 TRON: Exiting... Terminated.\x1b[0m");
           this.cleanup();
           return;
         }
@@ -99,11 +101,11 @@ class TronCLI {
         }
 
         try {
-          console.log("\n🔵 TRON: Processing...");
+          console.log("\nTRON: Processing...");
           const response = await this.chatWithTron(input);
-          console.log(`🤖 TRON: ${response}\n`);
+          console.log(`TRON: ${response}\n`);
         } catch (error) {
-          console.log(`❌ TRON: System error encountered - ${error.message}\n`);
+          console.log(`TRON: System error encountered - ${error.message}\n`);
         }
 
         chat();
@@ -129,13 +131,13 @@ class TronCLI {
       if (!isRunning) {
         await this.startOllama();
       } else {
-        console.log("✅ Ollama server is already running!");
+        console.log("Ollama server is already running!");
         this.isOllamaRunning = true;
       }
 
       await this.startChat();
     } catch (error) {
-      console.error("❌ Failed to initialize TRON:", error.message);
+      console.error("Failed to initialize TRON:", error.message);
       console.error(
         'Make sure Ollama is installed and the "tron" model exists.'
       );
@@ -146,7 +148,7 @@ class TronCLI {
 
 // Handle graceful shutdown
 process.on("SIGINT", () => {
-  console.log("\n\n🔴 TRON: Emergency shutdown initiated. End of line.");
+  console.log("\n\nTRON: Emergency shutdown initiated.");
   process.exit(0);
 });
 

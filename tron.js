@@ -7,6 +7,7 @@ class TronCLI {
   constructor() {
     this.isOllamaRunning = false;
     this.ollamaProcess = null;
+    this.conversationHistory = []; // Store conversation history
     this.rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
@@ -43,15 +44,41 @@ class TronCLI {
     });
   }
 
+  // Build the full conversation context
+  buildConversationPrompt(newMessage) {
+    let fullPrompt = "";
+
+    // Add conversation history
+    for (const exchange of this.conversationHistory) {
+      fullPrompt += `User: ${exchange.user}\nTRON: ${exchange.assistant}\n\n`;
+    }
+
+    // Add the new message
+    fullPrompt += `User: ${newMessage}\nTRON:`;
+
+    return fullPrompt;
+  }
+
   async chatWithTron(message) {
     return new Promise((resolve, reject) => {
+      // Build the full conversation context
+      const fullPrompt = this.buildConversationPrompt(message);
+
       const requestData = JSON.stringify({
         model: "tron",
-        prompt: message,
+        prompt: fullPrompt,
         stream: false,
+        options: {
+          temperature: 0.7,
+          top_p: 0.9,
+          max_tokens: 1000,
+        },
       });
 
-      const curlCommand = `curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d '${requestData}'`;
+      const curlCommand = `curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d '${requestData.replace(
+        /'/g,
+        "'\\''"
+      )}}'`;
 
       exec(curlCommand, (error, stdout, stderr) => {
         if (error) {
@@ -64,6 +91,17 @@ class TronCLI {
         try {
           const result = JSON.parse(stdout);
           if (result.response) {
+            // Store this exchange in conversation history
+            this.conversationHistory.push({
+              user: message,
+              assistant: result.response.trim(),
+            });
+
+            // Keep only the last 10 exchanges to prevent context from getting too long
+            if (this.conversationHistory.length > 10) {
+              this.conversationHistory = this.conversationHistory.slice(-10);
+            }
+
             resolve(result.response);
           } else if (result.error) {
             reject(new Error(result.error));
@@ -79,11 +117,18 @@ class TronCLI {
     });
   }
 
+  // Add a method to clear conversation history if needed
+  clearHistory() {
+    this.conversationHistory = [];
+    console.log("🧠 TRON: Memory cleared. Starting fresh conversation.\n");
+  }
+
   async startChat() {
     console.log("🤖 TRON SYSTEM INITIALIZED");
     console.log("═══════════════════════════");
     console.log("Greetings, User. I am TRON, your digital assistant.");
-    console.log('Type "exit", or "quit" to terminate the session.\n\x1b[0m');
+    console.log('Type "exit" or "quit" to terminate the session.');
+    console.log('Type "clear" to clear conversation memory.\n');
 
     const chat = async () => {
       this.rl.question("USER: ", async (input) => {
@@ -92,6 +137,12 @@ class TronCLI {
         if (trimmedInput === "exit" || trimmedInput === "quit") {
           console.log("\n🔴 TRON: Exiting... Terminated.\x1b[0m");
           this.cleanup();
+          return;
+        }
+
+        if (trimmedInput === "clear") {
+          this.clearHistory();
+          chat();
           return;
         }
 
